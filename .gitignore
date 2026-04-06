@@ -1,20 +1,23 @@
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 .venv/
 venv/
 env/
 
-# Output and sessions (user-generated data)
-output/*.csv
-sessions/*.json
-
-# Sample/test PDFs (optional — remove if you want them tracked)
-sample_document.pdf
-
 # macOS
 .DS_Store
 
+# User-generated output — not tracked in git
+output/*
+sessions/*
+!output/.gitkeep
+!sessions/.gitkeep
+
 # Streamlit
-.streamlit/credentials.toml
+.streamlit/
+
+# IDEs
+.vscode/
+.idea/

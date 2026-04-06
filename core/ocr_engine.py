@@ -9,6 +9,16 @@ from PIL import Image
 _ocr: TesseractOCR | None = None
 
 
+def _clean_cell(val: object) -> str:
+    """Normalise a raw OCR cell value for display."""
+    s = str(val).strip()
+    # Collapse embedded newlines to a single space (e.g. "87\n4680" → "87 4680")
+    s = s.replace("\n", " ").replace("\r", " ")
+    # Collapse runs of whitespace
+    s = " ".join(s.split())
+    return s
+
+
 def _get_ocr() -> TesseractOCR:
     global _ocr
     if _ocr is None:
@@ -50,8 +60,9 @@ def extract_table_from_region(
         largest = max(tables, key=lambda t: t.df.size)
         df = largest.df
 
-        # Replace None with empty string for clean display
+        # Replace None with empty string, then normalise cell text
         df = df.fillna("")
+        df = df.apply(lambda col: col.map(_clean_cell))
         return df
 
     finally:

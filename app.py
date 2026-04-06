@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
+from core.highlighter import issue_summary, make_styler
 from core.ocr_engine import extract_table_from_region
 from core.pdf_renderer import find_pdfs, get_page_count, render_page
 from core.session_manager import SessionManager
@@ -18,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-DISPLAY_WIDTH = 720
+BASE_DISPLAY_WIDTH = 720
 OUTPUT_DIR = Path("output")
 SESSIONS_DIR = Path("sessions")
 
@@ -28,16 +30,17 @@ SESSIONS_DIR.mkdir(exist_ok=True)
 # ---------------------------------------------------------------------------
 # Session state initialisation
 # ---------------------------------------------------------------------------
-def _init():
+def _init() -> None:
     defaults: dict = {
         "pdf_path": None,
         "page_count": 0,
         "current_page": 1,
-        "page_cache": {},   # page_number -> PIL Image
+        "page_cache": {},       # page_number -> PIL Image
         "extracted_df": None,
         "last_bbox": None,
         "session": SessionManager(),
-        "status_msg": None,   # ("success"|"error", text)
+        "flash": None,          # ("success"|"error"|"info", message)
+        "pdf_zoom": 1.0,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -60,7 +63,7 @@ def load_pdf(path: str) -> None:
 
 
 def go_to_page(n: int) -> None:
-    st.session_state.current_page = n
+    st.session_state.current_page = int(n)
     st.session_state.extracted_df = None
     st.session_state.last_bbox = None
 
@@ -73,7 +76,35 @@ def get_page_image(pdf_path: str, page_num: int):
 
 
 def safe_filename(name: str) -> str:
-    return "".join(c if c.isalnum() or c in "-_ " else "_" for c in name).strip().replace(" ", "_")
+    return (
+        "".join(c if c.isalnum() or c in "-_ " else "_" for c in name)
+        .strip()
+        .replace(" ", "_")
+    )
+
+
+def unique_csv_path(name: str, page: int) -> Path:
+    base = OUTPUT_DIR / f"{safe_filename(name)}_p{page}.csv"
+    if not base.exists():
+        return base
+    counter = 1
+    while True:
+        candidate = OUTPUT_DIR / f"{safe_filename(name)}_p{page}_{counter}.csv"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _session_preview(path: Path) -> tuple[int, str]:
+    """Return (n_extractions, created_date_str) without raising."""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        n = len(data.get("extractions", []))
+        date = data.get("created", "")[:10]
+        return n, date
+    except Exception:
+        return 0, ""
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +114,7 @@ with st.sidebar:
     st.title("📋 PDF Table Reader")
     st.divider()
 
-    # --- PDF selector ---
+    # ── PDF selector ──────────────────────────────────────────────────────
     st.subheader("Load PDF")
     pdf_files = find_pdfs(".")
     if pdf_files:
@@ -102,41 +133,66 @@ with st.sidebar:
             load_pdf(selected)
             st.rerun()
     else:
-        st.caption("No PDF files found in project folder.")
+        st.caption("No PDF files found in the project folder.")
 
     st.divider()
 
-    # --- Session panel ---
-    st.subheader("Session")
-
+    # ── Current session ───────────────────────────────────────────────────
     session: SessionManager = st.session_state.session
     extractions = session.extractions
 
+    st.subheader("Current Session")
     if extractions:
-        st.caption(f"{len(extractions)} table(s) saved this session")
         for ex in extractions:
-            with st.expander(f"p.{ex['page_number']} — {ex['table_name']}", expanded=False):
-                st.caption(f"CSV: `{Path(ex['csv_path']).name}`")
-                if ex.get("notes"):
-                    st.caption(ex["notes"])
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                st.caption(f"**p.{ex['page_number']}** — {ex['table_name']}")
+            with c2:
+                if st.button(
+                    "↗",
+                    key=f"go_{ex['id']}",
+                    help=f"Jump to page {ex['page_number']}",
+                ):
+                    target = ex["pdf_path"]
+                    if st.session_state.pdf_path != target and Path(target).exists():
+                        load_pdf(target)
+                    go_to_page(ex["page_number"])
+                    st.rerun()
     else:
         st.caption("No tables saved yet.")
 
     st.divider()
 
-    # --- Load a previous session ---
+    # ── Past sessions ─────────────────────────────────────────────────────
     session_files = sorted(SESSIONS_DIR.glob("*.json"), reverse=True)
     if session_files:
-        st.subheader("Resume session")
-        to_load = st.selectbox(
-            "Load",
-            ["—"] + [f.name for f in session_files],
-            label_visibility="collapsed",
-        )
-        if to_load != "—":
-            loaded = SessionManager.load(SESSIONS_DIR / to_load)
-            st.session_state.session = loaded
-            st.success(f"Loaded — {len(loaded.extractions)} extraction(s)")
+        st.subheader("Past Sessions")
+        for sf in session_files[:8]:
+            n, date = _session_preview(sf)
+            label = f"{sf.stem}"
+            with st.expander(f"{label}  ({n} tables)"):
+                if date:
+                    st.caption(f"Created: {date}")
+                # Show first few entries as a preview
+                try:
+                    with open(sf) as f:
+                        data = json.load(f)
+                    for ex in data.get("extractions", [])[:4]:
+                        st.caption(f"• p.{ex['page_number']}: {ex['table_name']}")
+                    if n > 4:
+                        st.caption(f"… and {n - 4} more")
+                except Exception:
+                    pass
+
+                if st.button("Load this session", key=f"load_{sf.name}"):
+                    loaded = SessionManager.load(sf)
+                    st.session_state.session = loaded
+                    # Restore PDF if the file still exists
+                    if loaded.extractions:
+                        last_pdf = loaded.extractions[-1]["pdf_path"]
+                        if Path(last_pdf).exists():
+                            load_pdf(last_pdf)
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +200,10 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 if not st.session_state.pdf_path:
     st.markdown("## Welcome to PDF Table Reader")
-    st.info("Select a PDF from the sidebar to get started.")
+    st.info(
+        "Select a PDF from the sidebar to get started.  \n"
+        "All PDFs in the project folder are listed automatically."
+    )
     st.stop()
 
 
@@ -179,18 +238,17 @@ with nav3:
         label_visibility="collapsed",
         key="page_jump",
     )
-    if jump != cur:
+    if int(jump) != cur:
         go_to_page(int(jump))
         st.rerun()
 
 with nav4:
     st.markdown(f"**{cur}** / {total}")
 
-# Show which pages have already been extracted in this session
 extracted_pages = {ex["page_number"] for ex in session.extractions}
 if extracted_pages:
-    done_str = ", ".join(str(p) for p in sorted(extracted_pages))
     with nav5:
+        done_str = ", ".join(str(p) for p in sorted(extracted_pages))
         st.caption(f"✅ Done: p.{done_str}")
 
 st.divider()
@@ -200,14 +258,30 @@ st.divider()
 # ---------------------------------------------------------------------------
 page_image = get_page_image(st.session_state.pdf_path, cur)
 img_w, img_h = page_image.size
-display_h = int(img_h * DISPLAY_WIDTH / img_w)
 
 col_left, col_right = st.columns([1.05, 1], gap="large")
 
-# ---- LEFT: PDF canvas ----
+# ═══════════════════════════════════════════════════════════════════════════
+# LEFT: PDF canvas
+# ═══════════════════════════════════════════════════════════════════════════
 with col_left:
-    st.subheader(f"Page {cur}")
-    st.caption("Draw a rectangle around the table you want to extract.")
+    # Header row: title + zoom control
+    hdr1, hdr2 = st.columns([3, 2])
+    with hdr1:
+        st.subheader(f"Page {cur}")
+    with hdr2:
+        zoom = st.select_slider(
+            "Zoom",
+            options=[0.4, 0.5, 0.6, 0.75, 1.0, 1.25, 1.5, 2.0],
+            value=st.session_state.get("pdf_zoom", 1.0),
+            format_func=lambda x: f"{int(x * 100)}%",
+            key="pdf_zoom",
+        )
+
+    st.caption("Draw a rectangle around a table, then click **Extract Table**.")
+
+    display_width = int(BASE_DISPLAY_WIDTH * zoom)
+    display_height = int(img_h * display_width / img_w)
 
     canvas_result = st_canvas(
         fill_color="rgba(255, 165, 0, 0.2)",
@@ -215,8 +289,8 @@ with col_left:
         stroke_color="#e74c3c",
         background_image=page_image,
         update_streamlit=True,
-        height=display_h,
-        width=DISPLAY_WIDTH,
+        height=display_height,
+        width=display_width,
         drawing_mode="rect",
         key=f"canvas_p{cur}",
     )
@@ -230,9 +304,9 @@ with col_left:
         disabled=not has_selection,
         use_container_width=True,
     ):
-        obj = objects[-1]  # use the last drawn rectangle
-        scale_x = img_w / DISPLAY_WIDTH
-        scale_y = img_h / display_h
+        obj = objects[-1]
+        scale_x = img_w / display_width
+        scale_y = img_h / display_height
         x1 = max(0, int(obj["left"] * scale_x))
         y1 = max(0, int(obj["top"] * scale_y))
         x2 = min(img_w, int((obj["left"] + obj["width"]) * scale_x))
@@ -244,96 +318,121 @@ with col_left:
         if df is not None and not df.empty:
             st.session_state.extracted_df = df
             st.session_state.last_bbox = (x1, y1, x2, y2)
-            st.session_state.status_msg = None
+            st.session_state.flash = None
         else:
-            st.session_state.status_msg = (
+            st.session_state.flash = (
                 "error",
-                "No table detected in the selected region. Try a larger or more precise selection.",
+                "No table detected in the selected region. "
+                "Try a larger or more precise selection.",
             )
         st.rerun()
 
-    if st.session_state.status_msg and st.session_state.status_msg[0] == "error":
-        st.error(st.session_state.status_msg[1])
+    flash = st.session_state.flash
+    if flash and flash[0] == "error":
+        st.error(flash[1])
 
-# ---- RIGHT: Data editor + save ----
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RIGHT: Data editor
+# ═══════════════════════════════════════════════════════════════════════════
 with col_right:
     st.subheader("Extracted Table")
 
     if st.session_state.extracted_df is None:
         st.info(
-            "Draw a rectangle around a table on the left, then click **Extract Table**."
+            "Draw a rectangle around a table on the left, "
+            "then click **Extract Table**."
         )
+        # Show success flash even when no df is loaded (post-save state)
+        if flash and flash[0] == "success":
+            st.success(flash[1])
     else:
         df: pd.DataFrame = st.session_state.extracted_df
 
-        # Metadata
+        # ── Metadata ──────────────────────────────────────────────────────
         table_name = st.text_input(
-            "Table name *",
+            "Table name *(required to save)*",
             placeholder="e.g. Takeoff Performance – 16300 lbs",
             key=f"tname_p{cur}",
         )
         notes = st.text_area(
             "Notes",
             placeholder="Optional: source context, units, caveats…",
-            height=72,
+            height=68,
             key=f"notes_p{cur}",
         )
 
-        st.caption(
-            f"Extracted {df.shape[0]} rows × {df.shape[1]} columns. "
-            "Click any cell to edit."
-        )
+        # ── Issue summary banner ───────────────────────────────────────────
+        summary = issue_summary(df)
+        if summary:
+            st.warning(f"⚠️ Issues detected: {summary}")
 
-        edited_df = st.data_editor(
-            df,
-            use_container_width=True,
-            num_rows="dynamic",
-            height=380,
-            key=f"editor_p{cur}",
-        )
+        # ── Tabs: Review (highlighted) / Edit & Save ───────────────────────
+        tab_review, tab_edit = st.tabs(["🔍 Review", "✏️ Edit & Save"])
 
-        btn_col1, btn_col2 = st.columns([1, 1])
+        with tab_review:
+            st.caption(
+                "🔴 Red = OCR artifact character (e.g. `)`  or em-dash).  "
+                "🟡 Amber = blank cell in a column that has other values."
+            )
+            st.dataframe(
+                make_styler(df),
+                use_container_width=True,
+                height=400,
+            )
 
-        with btn_col1:
-            if st.button("💾 Save as CSV", type="primary", use_container_width=True):
-                if not table_name.strip():
-                    st.error("Enter a table name before saving.")
-                else:
-                    fname = f"{safe_filename(table_name)}_p{cur}.csv"
-                    csv_path = OUTPUT_DIR / fname
-                    # Handle duplicate filenames
-                    counter = 1
-                    while csv_path.exists():
-                        csv_path = OUTPUT_DIR / f"{safe_filename(table_name)}_p{cur}_{counter}.csv"
-                        counter += 1
+        with tab_edit:
+            st.caption(
+                f"{df.shape[0]} rows × {df.shape[1]} cols — click any cell to edit."
+            )
+            edited_df = st.data_editor(
+                df,
+                use_container_width=True,
+                num_rows="dynamic",
+                height=360,
+                key=f"editor_p{cur}",
+            )
 
-                    edited_df.to_csv(csv_path, index=False)
+            st.divider()
 
-                    # Record in session (auto-saves session JSON)
-                    session.save(SESSIONS_DIR)  # ensure save path is initialised
-                    session.add_extraction(
-                        pdf_path=st.session_state.pdf_path,
-                        page_number=cur,
-                        table_name=table_name.strip(),
-                        notes=notes.strip(),
-                        csv_path=str(csv_path),
-                        bbox=st.session_state.last_bbox,
-                    )
+            btn1, btn2 = st.columns([1, 1])
 
+            with btn1:
+                if st.button(
+                    "💾 Save as CSV", type="primary", use_container_width=True
+                ):
+                    if not table_name.strip():
+                        st.error("Enter a table name before saving.")
+                    else:
+                        csv_path = unique_csv_path(table_name.strip(), cur)
+                        edited_df.to_csv(csv_path, index=False)
+
+                        session.save(SESSIONS_DIR)
+                        session.add_extraction(
+                            pdf_path=st.session_state.pdf_path,
+                            page_number=cur,
+                            table_name=table_name.strip(),
+                            notes=notes.strip(),
+                            csv_path=str(csv_path),
+                            bbox=st.session_state.last_bbox,
+                        )
+
+                        st.session_state.extracted_df = None
+                        st.session_state.last_bbox = None
+                        st.session_state.flash = (
+                            "success",
+                            f"Saved → `{csv_path}`",
+                        )
+                        st.rerun()
+
+            with btn2:
+                if st.button("✕ Discard", use_container_width=True):
                     st.session_state.extracted_df = None
                     st.session_state.last_bbox = None
-                    st.session_state.status_msg = ("success", f"Saved → `{csv_path}`")
+                    st.session_state.flash = None
                     st.rerun()
 
-        with btn_col2:
-            if st.button("✕ Discard", use_container_width=True):
-                st.session_state.extracted_df = None
-                st.session_state.last_bbox = None
-                st.rerun()
-
-    # Show success banner outside the else block so it persists after save
-    if (
-        st.session_state.status_msg
-        and st.session_state.status_msg[0] == "success"
-    ):
-        st.success(st.session_state.status_msg[1])
+        # Show success flash while df is still displayed (shouldn't normally
+        # happen, but guard against it)
+        if flash and flash[0] == "success":
+            st.success(flash[1])
