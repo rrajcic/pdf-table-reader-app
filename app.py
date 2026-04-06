@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-BASE_DISPLAY_WIDTH = 720
+DISPLAY_WIDTH = 720
 OUTPUT_DIR = Path("output")
 SESSIONS_DIR = Path("sessions")
 
@@ -40,7 +40,7 @@ def _init() -> None:
         "last_bbox": None,
         "session": SessionManager(),
         "flash": None,          # ("success"|"error"|"info", message)
-        "pdf_zoom": 1.0,
+        "right_panel_open": True,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -216,7 +216,7 @@ cur = st.session_state.current_page
 
 st.markdown(f"### {pdf_name}")
 
-nav1, nav2, nav3, nav4, nav5 = st.columns([1, 1, 2, 1, 3])
+nav1, nav2, nav3, nav4, nav5, nav6 = st.columns([1, 1, 2, 1, 2, 1])
 
 with nav1:
     if st.button("◀ Prev", disabled=(cur <= 1)):
@@ -251,36 +251,34 @@ if extracted_pages:
         done_str = ", ".join(str(p) for p in sorted(extracted_pages))
         st.caption(f"✅ Done: p.{done_str}")
 
+panel_open = st.session_state.right_panel_open
+with nav6:
+    label = "▶ Table" if not panel_open else "◀ Hide"
+    if st.button(label, key="toggle_panel"):
+        st.session_state.right_panel_open = not panel_open
+        st.rerun()
+
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Main two-column layout
+# Main layout — right panel is collapsible
 # ---------------------------------------------------------------------------
 page_image = get_page_image(st.session_state.pdf_path, cur)
 img_w, img_h = page_image.size
 
-col_left, col_right = st.columns([1.05, 1], gap="large")
+if panel_open:
+    col_left, col_right = st.columns([1.05, 1], gap="large")
+else:
+    col_left = st.columns([1])[0]
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LEFT: PDF canvas
 # ═══════════════════════════════════════════════════════════════════════════
 with col_left:
-    # Header row: title + zoom control
-    hdr1, hdr2 = st.columns([3, 2])
-    with hdr1:
-        st.subheader(f"Page {cur}")
-    with hdr2:
-        zoom = st.select_slider(
-            "Zoom",
-            options=[0.4, 0.5, 0.6, 0.75, 1.0, 1.25, 1.5, 2.0],
-            value=st.session_state.get("pdf_zoom", 1.0),
-            format_func=lambda x: f"{int(x * 100)}%",
-            key="pdf_zoom",
-        )
-
+    st.subheader(f"Page {cur}")
     st.caption("Draw a rectangle around a table, then click **Extract Table**.")
 
-    display_width = int(BASE_DISPLAY_WIDTH * zoom)
+    display_width = DISPLAY_WIDTH
     display_height = int(img_h * display_width / img_w)
 
     canvas_result = st_canvas(
@@ -333,8 +331,11 @@ with col_left:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# RIGHT: Data editor
+# RIGHT: Data editor (collapsible)
 # ═══════════════════════════════════════════════════════════════════════════
+if not panel_open:
+    st.stop()
+
 with col_right:
     st.subheader("Extracted Table")
 
