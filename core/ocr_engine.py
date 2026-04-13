@@ -19,6 +19,20 @@ def _clean_cell(val: object) -> str:
     return s
 
 
+def _split_newline_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Split columns where cells contain embedded newlines into two columns."""
+    parts = []
+    for col in df.columns:
+        series = df[col].astype(str)
+        if series.str.contains('\n', regex=False).any():
+            split = series.str.split('\n', n=1, expand=True)
+            split.columns = [f"{col}_1", f"{col}_2"]
+            parts.append(split)
+        else:
+            parts.append(df[[col]])
+    return pd.concat(parts, axis=1) if parts else df
+
+
 def _get_ocr() -> TesseractOCR:
     global _ocr
     if _ocr is None:
@@ -60,9 +74,12 @@ def extract_table_from_region(
         largest = max(tables, key=lambda t: t.df.size)
         df = largest.df
 
-        # Replace None with empty string, then normalise cell text
+        # Replace None with empty string, split stacked-value columns, then normalise cell text
         df = df.fillna("")
+        df = _split_newline_columns(df)
         df = df.apply(lambda col: col.map(_clean_cell))
+        # Normalise column names to strings so ag-Grid round-trips are stable
+        df.columns = [str(c) for c in df.columns]
         return df
 
     finally:

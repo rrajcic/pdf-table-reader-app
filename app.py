@@ -1,14 +1,18 @@
-import json
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
+from st_aggrid import AgGrid, DataReturnMode
+from st_aggrid.grid_options_builder import GridOptionsBuilder
+from st_aggrid.shared import JsCode
 from streamlit_drawable_canvas import st_canvas
 
-from core.highlighter import issue_summary, make_styler
+from core.highlighter import issue_summary
 from core.ocr_engine import extract_table_from_region
 from core.pdf_renderer import find_pdfs, get_page_count, render_page
 from core.session_manager import SessionManager
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -266,10 +270,7 @@ st.divider()
 page_image = get_page_image(st.session_state.pdf_path, cur)
 img_w, img_h = page_image.size
 
-if panel_open:
-    col_left, col_right = st.columns([1.05, 1], gap="large")
-else:
-    col_left = st.columns([1])[0]
+col_left, col_right = st.columns([1.05, 1], gap="large")
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LEFT: PDF canvas
@@ -295,6 +296,29 @@ with col_left:
 
     objects = (canvas_result.json_data or {}).get("objects", [])
     has_selection = len(objects) > 0
+
+    components.html("""
+<script>
+(function() {
+    if (window._extractHandler) {
+        window.parent.document.removeEventListener('keydown', window._extractHandler);
+    }
+    window._extractHandler = function(e) {
+        if (e.key === 'Enter') {
+            var btns = window.parent.document.querySelectorAll('button');
+            for (var i = 0; i < btns.length; i++) {
+                if (btns[i].innerText.trim() === 'Extract Table' && !btns[i].disabled) {
+                    e.preventDefault();
+                    btns[i].click();
+                    break;
+                }
+            }
+        }
+    };
+    window.parent.document.addEventListener('keydown', window._extractHandler);
+})();
+</script>
+""", height=0)
 
     if st.button(
         "Extract Table",
@@ -333,66 +357,135 @@ with col_left:
 # ═══════════════════════════════════════════════════════════════════════════
 # RIGHT: Data editor (collapsible)
 # ═══════════════════════════════════════════════════════════════════════════
-if not panel_open:
-    st.stop()
-
 with col_right:
-    st.subheader("Extracted Table")
+    if panel_open:
+        st.subheader("Extracted Table")
 
-    if st.session_state.extracted_df is None:
-        st.info(
-            "Draw a rectangle around a table on the left, "
-            "then click **Extract Table**."
-        )
-        # Show success flash even when no df is loaded (post-save state)
-        if flash and flash[0] == "success":
-            st.success(flash[1])
-    else:
-        df: pd.DataFrame = st.session_state.extracted_df
-
-        # ── Metadata ──────────────────────────────────────────────────────
-        table_name = st.text_input(
-            "Table name *(required to save)*",
-            placeholder="e.g. Takeoff Performance – 16300 lbs",
-            key=f"tname_p{cur}",
-        )
-        notes = st.text_area(
-            "Notes",
-            placeholder="Optional: source context, units, caveats…",
-            height=68,
-            key=f"notes_p{cur}",
-        )
-
-        # ── Issue summary banner ───────────────────────────────────────────
-        summary = issue_summary(df)
-        if summary:
-            st.warning(f"⚠️ Issues detected: {summary}")
-
-        # ── Tabs: Review (highlighted) / Edit & Save ───────────────────────
-        tab_review, tab_edit = st.tabs(["🔍 Review", "✏️ Edit & Save"])
-
-        with tab_review:
-            st.caption(
-                "🔴 Red = OCR artifact character (e.g. `)`  or em-dash).  "
-                "🟡 Amber = blank cell in a column that has other values."
+        if st.session_state.extracted_df is None:
+            st.info(
+                "Draw a rectangle around a table on the left, "
+                "then click **Extract Table**."
             )
-            st.dataframe(
-                make_styler(df),
-                use_container_width=True,
-                height=400,
+            # Show success flash even when no df is loaded (post-save state)
+            if flash and flash[0] == "success":
+                st.success(flash[1])
+        else:
+            df: pd.DataFrame = st.session_state.extracted_df
+
+            # ── Metadata ──────────────────────────────────────────────────────
+            table_name = st.text_input(
+                "Table name *(required to save)*",
+                placeholder="e.g. Takeoff Performance – 16300 lbs",
+                key=f"tname_p{cur}",
+            )
+            notes = st.text_area(
+                "Notes",
+                placeholder="Optional: source context, units, caveats…",
+                height=68,
+                key=f"notes_p{cur}",
             )
 
-        with tab_edit:
+            # ── Issue summary banner ───────────────────────────────────────────
+            summary = issue_summary(df)
+            if summary:
+                st.warning(
+                    f"⚠️ Issues detected: {summary}  \n"
+                    "🔴 Red = OCR artifact  |  🟡 Amber = likely missing value — "
+                    "click a cell to edit, highlight clears when fixed."
+                )
+
+            # ── Column deletion ────────────────────────────────────────────────
+            cols_to_drop = st.multiselect(
+                "Remove columns",
+                options=list(df.columns),
+                default=[],
+                key=f"drop_cols_p{cur}",
+                placeholder="Select columns to remove…",
+            )
+            if cols_to_drop:
+                if st.button("Remove selected columns", use_container_width=True):
+                    st.session_state.extracted_df = (
+                        df.drop(columns=cols_to_drop).reset_index(drop=True)
+                    )
+                    st.rerun()
+
+            # ── ag-Grid: editable table with live cell highlighting ────────────
             st.caption(
                 f"{df.shape[0]} rows × {df.shape[1]} cols — click any cell to edit."
             )
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True,
-                num_rows="dynamic",
-                height=360,
-                key=f"editor_p{cur}",
+
+            # Hidden _row_id column for reliable row-deletion tracking
+            df_display = df.copy().reset_index(drop=True)
+            df_display.insert(0, "_row_id", range(len(df_display)))
+
+            gb = GridOptionsBuilder.from_dataframe(df_display)
+            gb.configure_default_column(
+                editable=True,
+                resizable=True,
+                sortable=False,
+                filter=False,
+                wrapText=True,
+                autoHeight=True,
+                minWidth=100,
             )
+            gb.configure_column("_row_id", hide=True, editable=False)
+            gb.configure_selection("multiple", use_checkbox=True)
+
+            # Cell style: bad-char (red) and likely-missing (amber) detection runs
+            # entirely in JS on each value change — no Python rerun needed for highlights.
+            for col_idx, col_name in enumerate(df.columns):
+                col_vals = [str(df_display.iloc[r, col_idx + 1]) for r in range(len(df_display))]
+                n_non_blank = sum(1 for v in col_vals if v.strip() not in {"", "nan", "None"})
+                col_has_data = 1 if n_non_blank >= 2 else 0
+
+                cell_style_js = JsCode(f"""
+function(params) {{
+    var val = String(params.value == null ? '' : params.value).trim();
+    var bad = new Set([')', '(', '\u2014', '\u2013', '|']);
+    var blank = val === '' || val === 'nan' || val === 'None';
+    if (!blank) {{
+        for (var c of bad) {{
+            if (val.indexOf(c) !== -1) return {{'backgroundColor': '#ffcccc', 'color': '#b91c1c'}};
+        }}
+    }}
+    if (blank && {col_has_data}) return {{'backgroundColor': '#fef3c7', 'color': '#92400e'}};
+    return null;
+}}
+""")
+                gb.configure_column(field=str(col_name), cellStyle=cell_style_js)
+
+            grid_response = AgGrid(
+                df_display,
+                gridOptions=gb.build(),
+                height=380,
+                data_return_mode=DataReturnMode.AS_INPUT,
+                allow_unsafe_jscode=True,
+                enable_enterprise_modules=False,
+                theme="streamlit",
+                key=f"aggrid_p{cur}",
+                update_on=["cellValueChanged", "selectionChanged"],
+            )
+
+            # Sync edits to session state; no extra st.rerun() — the component's own
+            # cellValueChanged event already triggers one rerun which is enough.
+            raw = grid_response.data if grid_response.data is not None else df_display
+            edited_df = raw.drop(columns=["_row_id"], errors="ignore")
+            if not edited_df.equals(df):
+                st.session_state.extracted_df = edited_df
+
+            # ── Row deletion ───────────────────────────────────────────────────
+            selected = grid_response.selected_rows
+            if selected is not None and not selected.empty:
+                n_sel = len(selected)
+                if st.button(f"Delete {n_sel} selected row(s)", use_container_width=True):
+                    selected_ids = {int(float(v)) for v in selected["_row_id"]}
+                    new_df = (
+                        df_display[~df_display["_row_id"].isin(selected_ids)]
+                        .drop(columns=["_row_id"])
+                        .reset_index(drop=True)
+                    )
+                    st.session_state.extracted_df = new_df
+                    st.rerun()
 
             st.divider()
 
@@ -433,7 +526,7 @@ with col_right:
                     st.session_state.flash = None
                     st.rerun()
 
-        # Show success flash while df is still displayed (shouldn't normally
-        # happen, but guard against it)
-        if flash and flash[0] == "success":
-            st.success(flash[1])
+            # Show success flash while df is still displayed (shouldn't normally
+            # happen, but guard against it)
+            if flash and flash[0] == "success":
+                st.success(flash[1])
