@@ -399,12 +399,12 @@ else:
             st.rerun()
 
     # ── ag-Grid: editable table with live cell highlighting ────────────
-    cap_col, btn_col = st.columns([4, 1])
+    cap_col, recheck_col, clean_col = st.columns([3, 1, 1])
     with cap_col:
         st.caption(
             f"{df.shape[0]} rows × {df.shape[1]} cols — click any cell to edit."
         )
-    with btn_col:
+    with recheck_col:
         if st.button(
             "↺ Recheck",
             key=f"recheck_p{cur}",
@@ -412,6 +412,24 @@ else:
             use_container_width=True,
         ):
             st.session_state.aggrid_recheck += 1
+    with clean_col:
+        if st.button(
+            "✦ Clean",
+            key=f"clean_p{cur}",
+            help="Strip OCR artifact characters ( ) — – | from all cells, then recheck.",
+            use_container_width=True,
+        ):
+            _BAD = {")", "(", "\u2014", "\u2013", "|"}
+            def _strip(val):
+                s = str(val)
+                for c in _BAD:
+                    s = s.replace(c, "")
+                return " ".join(s.split())
+            st.session_state.extracted_df = df.apply(
+                lambda col: col.map(_strip)
+            )
+            st.session_state.aggrid_recheck += 1
+            st.rerun()
 
     # Hidden _row_id column for reliable row-deletion tracking
     df_display = df.copy().reset_index(drop=True)
