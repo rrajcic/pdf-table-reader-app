@@ -21,3 +21,6 @@ sessions/*
 # IDEs
 .vscode/
 .idea/
+/.claude
+/examples
+/testing
