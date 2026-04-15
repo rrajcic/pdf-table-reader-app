@@ -44,7 +44,7 @@ def _init() -> None:
         "last_bbox": None,
         "session": SessionManager(),
         "flash": None,          # ("success"|"error"|"info", message)
-        "right_panel_open": True,
+        "aggrid_recheck": 0,    # incremented on Recheck to force grid re-mount
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -220,7 +220,7 @@ cur = st.session_state.current_page
 
 st.markdown(f"### {pdf_name}")
 
-nav1, nav2, nav3, nav4, nav5, nav6 = st.columns([1, 1, 2, 1, 2, 1])
+nav1, nav2, nav3, nav4, nav5 = st.columns([1, 1, 2, 1, 2])
 
 with nav1:
     if st.button("◀ Prev", disabled=(cur <= 1)):
@@ -255,190 +255,189 @@ if extracted_pages:
         done_str = ", ".join(str(p) for p in sorted(extracted_pages))
         st.caption(f"✅ Done: p.{done_str}")
 
-panel_open = st.session_state.right_panel_open
-with nav6:
-    label = "▶ Table" if not panel_open else "◀ Hide"
-    if st.button(label, key="toggle_panel"):
-        st.session_state.right_panel_open = not panel_open
-        st.rerun()
-
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Main layout — right panel is collapsible
+# Main layout — PDF full width; table panel floats over it on the right
 # ---------------------------------------------------------------------------
 page_image = get_page_image(st.session_state.pdf_path, cur)
 img_w, img_h = page_image.size
 
-col_left, col_right = st.columns([1.05, 1], gap="large")
+# ═══════════════════════════════════════════════════════════════════════════
+# PDF canvas — always full width
+# ═══════════════════════════════════════════════════════════════════════════
+st.subheader(f"Page {cur}")
+st.caption("Draw a rectangle around a table, then click **Extract Table**.")
+
+display_width = DISPLAY_WIDTH
+display_height = int(img_h * display_width / img_w)
+
+canvas_result = st_canvas(
+    fill_color="rgba(255, 165, 0, 0.2)",
+    stroke_width=2,
+    stroke_color="#e74c3c",
+    background_image=page_image,
+    update_streamlit=True,
+    height=display_height,
+    width=display_width,
+    drawing_mode="rect",
+    key=f"canvas_p{cur}",
+)
+
+objects = (canvas_result.json_data or {}).get("objects", [])
+has_selection = len(objects) > 0
+
+# # Uncomment to allow the 'Enter' key to extract a table
+# components.html("""
+# <script>
+# (function() {
+#     if (window._extractHandler) {
+#         window.parent.document.removeEventListener('keydown', window._extractHandler);
+#     }
+#     window._extractHandler = function(e) {
+#         if (e.key === 'Enter') {
+#             var btns = window.parent.document.querySelectorAll('button');
+#             for (var i = 0; i < btns.length; i++) {
+#                 if (btns[i].innerText.trim() === 'Extract Table' && !btns[i].disabled) {
+#                     e.preventDefault();
+#                     btns[i].click();
+#                     break;
+#                 }
+#             }
+#         }
+#     };
+#     window.parent.document.addEventListener('keydown', window._extractHandler);
+# })();
+# </script>
+# """, height=0)
+
+if st.button(
+    "Extract Table",
+    type="primary",
+    disabled=not has_selection,
+    use_container_width=True,
+):
+    obj = objects[-1]
+    scale_x = img_w / display_width
+    scale_y = img_h / display_height
+    x1 = max(0, int(obj["left"] * scale_x))
+    y1 = max(0, int(obj["top"] * scale_y))
+    x2 = min(img_w, int((obj["left"] + obj["width"]) * scale_x))
+    y2 = min(img_h, int((obj["top"] + obj["height"]) * scale_y))
+
+    with st.spinner("Running OCR…"):
+        df = extract_table_from_region(page_image, x1, y1, x2, y2)
+
+    if df is not None and not df.empty:
+        st.session_state.extracted_df = df
+        st.session_state.last_bbox = (x1, y1, x2, y2)
+        st.session_state.flash = None
+    else:
+        st.session_state.flash = (
+            "error",
+            "No table detected in the selected region. "
+            "Try a larger or more precise selection.",
+        )
+    st.rerun()
+
+flash = st.session_state.flash
+if flash and flash[0] == "error":
+    st.error(flash[1])
+
 
 # ═══════════════════════════════════════════════════════════════════════════
-# LEFT: PDF canvas
+# Extracted table — rendered below the PDF canvas
 # ═══════════════════════════════════════════════════════════════════════════
-with col_left:
-    st.subheader(f"Page {cur}")
-    st.caption("Draw a rectangle around a table, then click **Extract Table**.")
+st.divider()
+st.subheader("Extracted Table")
 
-    display_width = DISPLAY_WIDTH
-    display_height = int(img_h * display_width / img_w)
+if st.session_state.extracted_df is None:
+    st.info(
+        "Draw a rectangle around a table above, "
+        "then click **Extract Table**."
+    )
+    if flash and flash[0] == "success":
+        st.success(flash[1])
+else:
+    df: pd.DataFrame = st.session_state.extracted_df
 
-    canvas_result = st_canvas(
-        fill_color="rgba(255, 165, 0, 0.2)",
-        stroke_width=2,
-        stroke_color="#e74c3c",
-        background_image=page_image,
-        update_streamlit=True,
-        height=display_height,
-        width=display_width,
-        drawing_mode="rect",
-        key=f"canvas_p{cur}",
+    # ── Metadata ──────────────────────────────────────────────────────
+    table_name = st.text_input(
+        "Table name *(required to save)*",
+        placeholder="e.g. Takeoff Performance – 16300 lbs",
+        key=f"tname_p{cur}",
+    )
+    notes = st.text_area(
+        "Notes",
+        placeholder="Optional: source context, units, caveats…",
+        height=68,
+        key=f"notes_p{cur}",
     )
 
-    objects = (canvas_result.json_data or {}).get("objects", [])
-    has_selection = len(objects) > 0
+    # ── Issue summary banner ───────────────────────────────────────────
+    summary = issue_summary(df)
+    if summary:
+        st.warning(
+            f"⚠️ Issues detected: {summary}  \n"
+            "🔴 Red = OCR artifact  |  🟡 Amber = likely missing value — "
+            "click a cell to edit, highlight clears when fixed."
+        )
 
-    components.html("""
-<script>
-(function() {
-    if (window._extractHandler) {
-        window.parent.document.removeEventListener('keydown', window._extractHandler);
-    }
-    window._extractHandler = function(e) {
-        if (e.key === 'Enter') {
-            var btns = window.parent.document.querySelectorAll('button');
-            for (var i = 0; i < btns.length; i++) {
-                if (btns[i].innerText.trim() === 'Extract Table' && !btns[i].disabled) {
-                    e.preventDefault();
-                    btns[i].click();
-                    break;
-                }
-            }
-        }
-    };
-    window.parent.document.addEventListener('keydown', window._extractHandler);
-})();
-</script>
-""", height=0)
-
-    if st.button(
-        "Extract Table",
-        type="primary",
-        disabled=not has_selection,
-        use_container_width=True,
-    ):
-        obj = objects[-1]
-        scale_x = img_w / display_width
-        scale_y = img_h / display_height
-        x1 = max(0, int(obj["left"] * scale_x))
-        y1 = max(0, int(obj["top"] * scale_y))
-        x2 = min(img_w, int((obj["left"] + obj["width"]) * scale_x))
-        y2 = min(img_h, int((obj["top"] + obj["height"]) * scale_y))
-
-        with st.spinner("Running OCR…"):
-            df = extract_table_from_region(page_image, x1, y1, x2, y2)
-
-        if df is not None and not df.empty:
-            st.session_state.extracted_df = df
-            st.session_state.last_bbox = (x1, y1, x2, y2)
-            st.session_state.flash = None
-        else:
-            st.session_state.flash = (
-                "error",
-                "No table detected in the selected region. "
-                "Try a larger or more precise selection.",
+    # ── Column deletion ────────────────────────────────────────────────
+    cols_to_drop = st.multiselect(
+        "Remove columns",
+        options=list(df.columns),
+        default=[],
+        key=f"drop_cols_p{cur}",
+        placeholder="Select columns to remove…",
+    )
+    if cols_to_drop:
+        if st.button("Remove selected columns", use_container_width=True):
+            st.session_state.extracted_df = (
+                df.drop(columns=cols_to_drop).reset_index(drop=True)
             )
-        st.rerun()
+            st.rerun()
 
-    flash = st.session_state.flash
-    if flash and flash[0] == "error":
-        st.error(flash[1])
+    # ── ag-Grid: editable table with live cell highlighting ────────────
+    cap_col, btn_col = st.columns([4, 1])
+    with cap_col:
+        st.caption(
+            f"{df.shape[0]} rows × {df.shape[1]} cols — click any cell to edit."
+        )
+    with btn_col:
+        if st.button(
+            "↺ Recheck",
+            key=f"recheck_p{cur}",
+            help="Re-mount the grid so all cell highlights reflect current values.",
+            use_container_width=True,
+        ):
+            st.session_state.aggrid_recheck += 1
 
+    # Hidden _row_id column for reliable row-deletion tracking
+    df_display = df.copy().reset_index(drop=True)
+    df_display.insert(0, "_row_id", range(len(df_display)))
 
-# ═══════════════════════════════════════════════════════════════════════════
-# RIGHT: Data editor (collapsible)
-# ═══════════════════════════════════════════════════════════════════════════
-with col_right:
-    if panel_open:
-        st.subheader("Extracted Table")
+    gb = GridOptionsBuilder.from_dataframe(df_display)
+    gb.configure_default_column(
+        editable=True,
+        resizable=True,
+        sortable=False,
+        filter=False,
+        wrapText=True,
+        autoHeight=True,
+        minWidth=100,
+    )
+    gb.configure_column("_row_id", hide=True, editable=False)
+    gb.configure_selection("multiple", use_checkbox=True)
 
-        if st.session_state.extracted_df is None:
-            st.info(
-                "Draw a rectangle around a table on the left, "
-                "then click **Extract Table**."
-            )
-            # Show success flash even when no df is loaded (post-save state)
-            if flash and flash[0] == "success":
-                st.success(flash[1])
-        else:
-            df: pd.DataFrame = st.session_state.extracted_df
+    # Cell style: bad-char (red) and likely-missing (amber) detection runs
+    # entirely in JS on each value change — no Python rerun needed for highlights.
+    for col_idx, col_name in enumerate(df.columns):
+        col_vals = [str(df_display.iloc[r, col_idx + 1]) for r in range(len(df_display))]
+        n_non_blank = sum(1 for v in col_vals if v.strip() not in {"", "nan", "None"})
+        col_has_data = 1 if n_non_blank >= 2 else 0
 
-            # ── Metadata ──────────────────────────────────────────────────────
-            table_name = st.text_input(
-                "Table name *(required to save)*",
-                placeholder="e.g. Takeoff Performance – 16300 lbs",
-                key=f"tname_p{cur}",
-            )
-            notes = st.text_area(
-                "Notes",
-                placeholder="Optional: source context, units, caveats…",
-                height=68,
-                key=f"notes_p{cur}",
-            )
-
-            # ── Issue summary banner ───────────────────────────────────────────
-            summary = issue_summary(df)
-            if summary:
-                st.warning(
-                    f"⚠️ Issues detected: {summary}  \n"
-                    "🔴 Red = OCR artifact  |  🟡 Amber = likely missing value — "
-                    "click a cell to edit, highlight clears when fixed."
-                )
-
-            # ── Column deletion ────────────────────────────────────────────────
-            cols_to_drop = st.multiselect(
-                "Remove columns",
-                options=list(df.columns),
-                default=[],
-                key=f"drop_cols_p{cur}",
-                placeholder="Select columns to remove…",
-            )
-            if cols_to_drop:
-                if st.button("Remove selected columns", use_container_width=True):
-                    st.session_state.extracted_df = (
-                        df.drop(columns=cols_to_drop).reset_index(drop=True)
-                    )
-                    st.rerun()
-
-            # ── ag-Grid: editable table with live cell highlighting ────────────
-            st.caption(
-                f"{df.shape[0]} rows × {df.shape[1]} cols — click any cell to edit."
-            )
-
-            # Hidden _row_id column for reliable row-deletion tracking
-            df_display = df.copy().reset_index(drop=True)
-            df_display.insert(0, "_row_id", range(len(df_display)))
-
-            gb = GridOptionsBuilder.from_dataframe(df_display)
-            gb.configure_default_column(
-                editable=True,
-                resizable=True,
-                sortable=False,
-                filter=False,
-                wrapText=True,
-                autoHeight=True,
-                minWidth=100,
-            )
-            gb.configure_column("_row_id", hide=True, editable=False)
-            gb.configure_selection("multiple", use_checkbox=True)
-
-            # Cell style: bad-char (red) and likely-missing (amber) detection runs
-            # entirely in JS on each value change — no Python rerun needed for highlights.
-            for col_idx, col_name in enumerate(df.columns):
-                col_vals = [str(df_display.iloc[r, col_idx + 1]) for r in range(len(df_display))]
-                n_non_blank = sum(1 for v in col_vals if v.strip() not in {"", "nan", "None"})
-                col_has_data = 1 if n_non_blank >= 2 else 0
-
-                cell_style_js = JsCode(f"""
+        cell_style_js = JsCode(f"""
 function(params) {{
     var val = String(params.value == null ? '' : params.value).trim();
     var bad = new Set([')', '(', '\u2014', '\u2013', '|']);
@@ -452,81 +451,79 @@ function(params) {{
     return null;
 }}
 """)
-                gb.configure_column(field=str(col_name), cellStyle=cell_style_js)
+        gb.configure_column(field=str(col_name), cellStyle=cell_style_js)
 
-            grid_response = AgGrid(
-                df_display,
-                gridOptions=gb.build(),
-                height=380,
-                data_return_mode=DataReturnMode.AS_INPUT,
-                allow_unsafe_jscode=True,
-                enable_enterprise_modules=False,
-                theme="streamlit",
-                key=f"aggrid_p{cur}",
-                update_on=["cellValueChanged", "selectionChanged"],
+    grid_response = AgGrid(
+        df_display,
+        gridOptions=gb.build(),
+        height=380,
+        data_return_mode=DataReturnMode.AS_INPUT,
+        allow_unsafe_jscode=True,
+        enable_enterprise_modules=False,
+        theme="streamlit",
+        key=f"aggrid_p{cur}_v{st.session_state.aggrid_recheck}",
+        update_on=["cellValueChanged", "selectionChanged"],
+    )
+
+    # Sync edits to session state; no extra st.rerun() — the component's own
+    # cellValueChanged event already triggers one rerun which is enough.
+    raw = grid_response.data if grid_response.data is not None else df_display
+    edited_df = raw.drop(columns=["_row_id"], errors="ignore")
+    if not edited_df.equals(df):
+        st.session_state.extracted_df = edited_df
+
+    # ── Row deletion ───────────────────────────────────────────────────
+    selected = grid_response.selected_rows
+    if selected is not None and not selected.empty:
+        n_sel = len(selected)
+        if st.button(f"Delete {n_sel} selected row(s)", use_container_width=True):
+            selected_ids = {int(float(v)) for v in selected["_row_id"]}
+            new_df = (
+                df_display[~df_display["_row_id"].isin(selected_ids)]
+                .drop(columns=["_row_id"])
+                .reset_index(drop=True)
             )
+            st.session_state.extracted_df = new_df
+            st.rerun()
 
-            # Sync edits to session state; no extra st.rerun() — the component's own
-            # cellValueChanged event already triggers one rerun which is enough.
-            raw = grid_response.data if grid_response.data is not None else df_display
-            edited_df = raw.drop(columns=["_row_id"], errors="ignore")
-            if not edited_df.equals(df):
-                st.session_state.extracted_df = edited_df
+    st.divider()
 
-            # ── Row deletion ───────────────────────────────────────────────────
-            selected = grid_response.selected_rows
-            if selected is not None and not selected.empty:
-                n_sel = len(selected)
-                if st.button(f"Delete {n_sel} selected row(s)", use_container_width=True):
-                    selected_ids = {int(float(v)) for v in selected["_row_id"]}
-                    new_df = (
-                        df_display[~df_display["_row_id"].isin(selected_ids)]
-                        .drop(columns=["_row_id"])
-                        .reset_index(drop=True)
-                    )
-                    st.session_state.extracted_df = new_df
-                    st.rerun()
+    btn1, btn2 = st.columns([1, 1])
 
-            st.divider()
+    with btn1:
+        if st.button(
+            "💾 Save as CSV", type="primary", use_container_width=True
+        ):
+            if not table_name.strip():
+                st.error("Enter a table name before saving.")
+            else:
+                csv_path = unique_csv_path(table_name.strip(), cur)
+                edited_df.to_csv(csv_path, index=False)
 
-            btn1, btn2 = st.columns([1, 1])
+                session.save(SESSIONS_DIR)
+                session.add_extraction(
+                    pdf_path=st.session_state.pdf_path,
+                    page_number=cur,
+                    table_name=table_name.strip(),
+                    notes=notes.strip(),
+                    csv_path=str(csv_path),
+                    bbox=st.session_state.last_bbox,
+                )
 
-            with btn1:
-                if st.button(
-                    "💾 Save as CSV", type="primary", use_container_width=True
-                ):
-                    if not table_name.strip():
-                        st.error("Enter a table name before saving.")
-                    else:
-                        csv_path = unique_csv_path(table_name.strip(), cur)
-                        edited_df.to_csv(csv_path, index=False)
+                st.session_state.extracted_df = None
+                st.session_state.last_bbox = None
+                st.session_state.flash = (
+                    "success",
+                    f"Saved → `{csv_path}`",
+                )
+                st.rerun()
 
-                        session.save(SESSIONS_DIR)
-                        session.add_extraction(
-                            pdf_path=st.session_state.pdf_path,
-                            page_number=cur,
-                            table_name=table_name.strip(),
-                            notes=notes.strip(),
-                            csv_path=str(csv_path),
-                            bbox=st.session_state.last_bbox,
-                        )
+    with btn2:
+        if st.button("✕ Discard", use_container_width=True):
+            st.session_state.extracted_df = None
+            st.session_state.last_bbox = None
+            st.session_state.flash = None
+            st.rerun()
 
-                        st.session_state.extracted_df = None
-                        st.session_state.last_bbox = None
-                        st.session_state.flash = (
-                            "success",
-                            f"Saved → `{csv_path}`",
-                        )
-                        st.rerun()
-
-            with btn2:
-                if st.button("✕ Discard", use_container_width=True):
-                    st.session_state.extracted_df = None
-                    st.session_state.last_bbox = None
-                    st.session_state.flash = None
-                    st.rerun()
-
-            # Show success flash while df is still displayed (shouldn't normally
-            # happen, but guard against it)
-            if flash and flash[0] == "success":
-                st.success(flash[1])
+    if flash and flash[0] == "success":
+        st.success(flash[1])
