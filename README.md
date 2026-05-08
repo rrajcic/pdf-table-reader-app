@@ -2,6 +2,8 @@
 
 A local desktop app that lets you draw a box around any table in a PDF and extract it into an editable spreadsheet (CSV). Everything runs on your own computer — no internet connection required, no accounts, no uploads.
 
+Note: The intention of this project was to build something helpful for my dad while exploring current capabilities of coding agents. I wanted to do as little designing, planning, and coding as possible to see how well agents can do these things on their own, and to experiment with how much support/guidance they actually need. 
+
 ---
 
 ## What it does
