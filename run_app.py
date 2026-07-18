@@ -65,7 +65,7 @@ def _selftest() -> int:
     import bs4  # noqa: F401
     import cv2  # noqa: F401
     import img2table  # noqa: F401
-    import polars  # noqa: F401
+    import pypdfium2  # noqa: F401
 
     import core.ocr_engine  # noqa: F401
     import core.pdf_renderer  # noqa: F401

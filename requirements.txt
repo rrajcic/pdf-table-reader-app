@@ -3,6 +3,9 @@ streamlit>=1.32.0,<1.44.0
 streamlit-drawable-canvas>=0.9.3
 streamlit-aggrid>=1.0.5,<2.0.0
 PyMuPDF>=1.24.0
-img2table>=1.4.0
+# Pin the 2.x line: img2table 2.0 dropped polars/numba for a lighter stack
+# (pypdfium2 + opencv). Leaving this unpinned caused a dev/CI skew (1.4.x vs
+# 2.0.0) with different deps. Keep dev and the Windows build on the same major.
+img2table>=2.0.0,<3.0.0
 pandas>=2.0.0
 pillow>=10.0.0

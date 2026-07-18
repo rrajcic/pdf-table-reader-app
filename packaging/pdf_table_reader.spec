@@ -36,7 +36,7 @@ def _collect(pkg):
 # only through them must be collected explicitly or it will be missing from the
 # bundle and the app will crash the first time a table is extracted:
 #   fitz (PyMuPDF)  -> core/pdf_renderer.py
-#   img2table       -> core/ocr_engine.py  (pulls cv2, polars, bs4)
+#   img2table 2.x   -> core/ocr_engine.py  (pulls cv2, bs4, pypdfium2)
 #   st_aggrid, streamlit_drawable_canvas -> app.py (also ship a JS frontend)
 # Streamlit's own deps (pandas, numpy, PIL, pyarrow) arrive via the run_app.py
 # import graph, but we collect a couple explicitly for safety.
@@ -46,8 +46,8 @@ for pkg in (
     "streamlit_drawable_canvas",
     "img2table",
     "cv2",
-    "polars",
     "bs4",
+    "pypdfium2",
     "PIL",
 ):
     _collect(pkg)

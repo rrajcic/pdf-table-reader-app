@@ -203,7 +203,13 @@ budget for CI iteration.
       bundling defect: core-only deps `fitz`/`img2table`/`cv2`/`polars`/`bs4` were missing from
       the bundle; fixed with explicit `collect_all` + a `PDFTR_SELFTEST` CI check.)
 - [ ] Run the workflow (Actions → Run workflow) to shake out PyInstaller issues before the
-      first tagged release. — **in progress:** run 29648063961.
+      first tagged release.
+      - Run 29648063961: **failed** at the sanity-check step — `requirements.txt` left
+        `img2table` unpinned, so CI resolved **2.0.0** while dev had **1.4.2**. 2.0.0 dropped
+        `polars`/`numba` for a lighter `pypdfium2`+opencv stack, so the `polars` import failed.
+        Fixed by pinning `img2table>=2.0.0,<3.0.0` and swapping `polars`→`pypdfium2` in the spec
+        collect list, the CI sanity check, and the `_selftest` hook. Verified 2.0.0 extracts
+        correctly in a clean venv mirroring CI. (branch `phase-3-fix-img2table-pin`)
 
 **Risks & mitigations:**
 - *Streamlit + PyInstaller quirks* (highest risk): iterate in CI; onedir-debug fallback.
