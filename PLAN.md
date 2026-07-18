@@ -92,7 +92,7 @@ After completing each phase:
 - [x] App boots headless; `/_stcore/health` returns 200, no import regressions.
 
 ### Then
-- [ ] PR `phase-1-native-deps` → code-review → merge.
+- [x] PR `phase-1-native-deps` → code-review → merge. (PR #1, merged)
 
 **Risk:** Low. Only the render path changes; OCR output is identical.
 
@@ -145,7 +145,7 @@ After completing each phase:
       absent and preserves an existing user file (unit-tested).
 
 ### Then
-- [ ] PR `phase-2-launcher` → code-review → merge.
+- [x] PR `phase-2-launcher` → code-review → merge. (PR #2, merged)
 
 **Risk:** Low–medium. Well-trodden pattern; main thing to confirm is health-poll timing.
 
@@ -199,8 +199,11 @@ budget for CI iteration.
 - [ ] Tagged release produces a downloadable `.exe` on the Releases page.
 
 ### Then
-- [ ] PR `phase-3-packaging` → code-review → merge, then run the workflow (Actions →
-      Run workflow) to shake out any PyInstaller issues before cutting the first tagged release.
+- [x] PR `phase-3-packaging` → code-review → merge. (PR #3, merged — review caught a critical
+      bundling defect: core-only deps `fitz`/`img2table`/`cv2`/`polars`/`bs4` were missing from
+      the bundle; fixed with explicit `collect_all` + a `PDFTR_SELFTEST` CI check.)
+- [ ] Run the workflow (Actions → Run workflow) to shake out PyInstaller issues before the
+      first tagged release. — **in progress:** run 29648063961.
 
 **Risks & mitigations:**
 - *Streamlit + PyInstaller quirks* (highest risk): iterate in CI; onedir-debug fallback.
