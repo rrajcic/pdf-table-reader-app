@@ -100,11 +100,11 @@ After completing each phase:
 
 ## Phase 2 — Make it launch like an app
 
-**Status:** ☐ Not started
+**Status:** ☑ Done — verified on macOS; PR + code-review pending merge.
 **Goal:** Double-click → app opens in browser. No terminal, no `credentials.toml` step.
 
 ### Tasks
-- [ ] **2.1 Launcher entry point.** New `run_app.py` at repo root — the script PyInstaller
+- [x] **2.1 Launcher entry point.** New `run_app.py` at repo root — the script PyInstaller
       compiles into the `.exe`. Boots Streamlit headless and opens the browser itself once the
       server's real health endpoint responds (reliable for a slow-starting one-file exe).
       ```python
@@ -131,15 +131,18 @@ After completing each phase:
           import streamlit.web.cli as stcli
           sys.exit(stcli.main())
       ```
-- [ ] **2.2 Kill the email prompt permanently.** Bundle a `.streamlit/config.toml`
-      (`[browser] gatherUsageStats=false`, `[server] headless=true`) AND have the launcher write
-      an empty-email `~/.streamlit/credentials.toml` on first run if absent (idempotent). Headless
-      mode already suppresses the prompt; this is belt-and-suspenders so the manual setup step
-      disappears.
+- [x] **2.2 Kill the email prompt permanently.** The launcher passes `--server.headless=true`
+      and `--browser.gatherUsageStats=false` as CLI flags and writes an empty-email
+      `~/.streamlit/credentials.toml` on first run if absent (idempotent, never clobbers an
+      existing file). **Deviation from original plan:** dropped the bundled `.streamlit/config.toml`
+      — `.streamlit/` is (correctly) gitignored as user-specific, and the CLI flags + credentials
+      write already fully cover headless + no-usage-stats + no-email-prompt, so the file was
+      redundant.
 
 ### Verification (macOS)
-- [ ] Run `python3 run_app.py` (not `streamlit run`); confirm it boots, opens the browser at the
-      right moment, and works end-to-end.
+- [x] `python3 run_app.py` boots Streamlit headless on :8501; `/_stcore/health` returns 200.
+- [x] `_resource("app.py")` resolves correctly; `_ensure_credentials()` creates the file when
+      absent and preserves an existing user file (unit-tested).
 
 ### Then
 - [ ] PR `phase-2-launcher` → code-review → merge.
