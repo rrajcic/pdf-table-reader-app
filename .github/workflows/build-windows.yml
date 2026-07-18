@@ -48,7 +48,7 @@ jobs:
         # These are reached only through app.py/core, which the PyInstaller spec
         # ships as data — so confirm they at least import in the build env before
         # spending time on the build.
-        run: python -c "import fitz, img2table, cv2, polars, bs4, PIL, pandas, streamlit, st_aggrid, streamlit_drawable_canvas; import core.ocr_engine, core.pdf_renderer; print('imports OK')"
+        run: python -c "import fitz, img2table, cv2, pypdfium2, bs4, PIL, pandas, streamlit, st_aggrid, streamlit_drawable_canvas; import core.ocr_engine, core.pdf_renderer; print('imports OK')"
 
       - name: Build executable
         shell: pwsh
