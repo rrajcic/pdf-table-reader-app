@@ -12,6 +12,11 @@ import os
 
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 
+# PyInstaller resolves relative script/data paths against the spec file's own
+# directory (SPECPATH = packaging/), not the invocation cwd. Anchor everything
+# to the repo root so `pyinstaller packaging/pdf_table_reader.spec` works.
+ROOT = os.path.dirname(SPECPATH)  # noqa: F821 (SPECPATH injected by PyInstaller)
+
 datas = []
 binaries = []
 hiddenimports = []
@@ -68,18 +73,19 @@ for pkg in ("streamlit", "img2table", "pandas", "numpy", "pyarrow", "PyMuPDF"):
 # --- Application source -----------------------------------------------------
 # app.py is executed as a script by Streamlit (not imported), so it and the
 # core/ package are shipped as data and resolved via sys._MEIPASS at runtime.
-datas += [("app.py", "."), ("core", "core")]
+datas += [(os.path.join(ROOT, "app.py"), "."), (os.path.join(ROOT, "core"), "core")]
 
 # --- Bundled Tesseract ------------------------------------------------------
-# CI copies "C:\Program Files\Tesseract-OCR" to ./tesseract before building.
+# CI copies "C:\Program Files\Tesseract-OCR" to <root>/tesseract before building.
 # core/ocr_engine.py:_configure_tesseract() adds <bundle>/tesseract to PATH and
 # points TESSDATA_PREFIX at <bundle>/tesseract/tessdata.
-if os.path.isdir("tesseract"):
-    datas += [("tesseract", "tesseract")]
+_tess = os.path.join(ROOT, "tesseract")
+if os.path.isdir(_tess):
+    datas += [(_tess, "tesseract")]
 else:
     raise SystemExit(
-        "packaging: ./tesseract not found. The CI 'Stage Tesseract' step must "
-        "copy C:\\Program Files\\Tesseract-OCR to ./tesseract before building."
+        f"packaging: {_tess} not found. The CI 'Stage Tesseract' step must "
+        "copy C:\\Program Files\\Tesseract-OCR to <repo root>/tesseract before building."
     )
 
 # Streamlit's dynamic imports that PyInstaller's static analysis can miss.
@@ -91,8 +97,8 @@ hiddenimports += [
 
 
 a = Analysis(
-    ["run_app.py"],
-    pathex=[],
+    [os.path.join(ROOT, "run_app.py")],
+    pathex=[ROOT],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
