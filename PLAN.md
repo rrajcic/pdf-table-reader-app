@@ -199,9 +199,13 @@ budget for CI iteration.
 - [x] Spec parses (`py_compile`); workflow is valid YAML.
 - [x] CI smoke test passes (run 29648590033: exe boots, `/_stcore/health` 200, self-test OK).
 - [ ] Manual `workflow_dispatch` artifact runs end-to-end on a real Windows machine.
-      **← the one thing CI can't prove: drawing a box and extracting a table actually runs the
-      bundled tesseract.exe. Download the artifact and try it on Windows before releasing.**
-- [ ] Tagged release produces a downloadable `.exe` on the Releases page.
+      **← STILL THE ONE UNVERIFIED THING: drawing a box and extracting a table actually runs the
+      bundled tesseract.exe. Released before this check at the user's direction — do one real
+      extract on Windows to confirm OCR works.**
+- [x] Tagged release produces a downloadable `.exe` on the Releases page.
+      → v1.1.0: https://github.com/rrajcic/pdf-table-reader-app/releases/tag/v1.1.0
+      (PDFTableReader.exe, ~238 MB. Note: v1.0.0 tag predated packaging and was never released,
+      so this first packaged release is v1.1.0.)
 
 ### Then
 - [x] PR `phase-3-packaging` → code-review → merge. (PR #3, merged — review caught a critical
