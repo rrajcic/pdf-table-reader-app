@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 
 import pandas as pd
@@ -7,6 +8,27 @@ from img2table.ocr import TesseractOCR
 from PIL import Image
 
 _ocr: TesseractOCR | None = None
+
+
+def _configure_tesseract() -> str | None:
+    """
+    Make a bundled tesseract usable inside a PyInstaller build.
+
+    When frozen, PyInstaller sets ``sys._MEIPASS`` to the unpacked bundle dir;
+    the packaging step places ``tesseract/`` (the exe + DLLs + tessdata) there.
+    We prepend that dir to PATH so img2table's ``TesseractOCR`` — which resolves
+    a bare ``tesseract`` command from a copy of ``os.environ`` — finds it, and
+    return the tessdata dir to pass as ``tessdata_dir``.
+
+    In normal dev runs there is no bundle, so this is a no-op and the system
+    tesseract (e.g. Homebrew) on PATH is used unchanged.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    if base is None:
+        return None
+    tess_dir = os.path.join(base, "tesseract")
+    os.environ["PATH"] = tess_dir + os.pathsep + os.environ.get("PATH", "")
+    return os.path.join(tess_dir, "tessdata")
 
 
 def _clean_cell(val: object) -> str:
@@ -36,7 +58,7 @@ def _split_newline_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _get_ocr() -> TesseractOCR:
     global _ocr
     if _ocr is None:
-        _ocr = TesseractOCR(lang="eng")
+        _ocr = TesseractOCR(lang="eng", tessdata_dir=_configure_tesseract())
     return _ocr
 
 

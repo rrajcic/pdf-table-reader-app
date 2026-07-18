@@ -35,11 +35,11 @@ After completing each phase:
 
 ## Phase 1 — Remove native-binary dependencies
 
-**Status:** ☐ Not started
+**Status:** ☑ Done — verified on macOS; PR + code-review pending merge.
 **Testable entirely on macOS. Lowest risk, highest value — this is the actual unblocker.**
 
 ### Tasks
-- [ ] **1.1 Swap PDF rendering to PyMuPDF.** Rewrite `core/pdf_renderer.py` to use `fitz`
+- [x] **1.1 Swap PDF rendering to PyMuPDF.** Rewrite `core/pdf_renderer.py` to use `fitz`
       (PyMuPDF) for both `render_page()` and `get_page_count()`, removing `pdf2image`+`poppler`
       and `pypdf`. `find_pdfs()` is pure `pathlib` — unchanged.
       ```python
@@ -56,7 +56,7 @@ After completing each phase:
               pix = page.get_pixmap(matrix=fitz.Matrix(dpi/72, dpi/72))
               return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
       ```
-- [ ] **1.2 Make tesseract bundle-aware.** Add a runtime resolver to `core/ocr_engine.py`.
+- [x] **1.2 Make tesseract bundle-aware.** Add a runtime resolver to `core/ocr_engine.py`.
       `img2table`'s `TesseractOCR` resolves a bare `tesseract` command from `PATH` (a copy of
       `os.environ` taken at init) and accepts `tessdata_dir`. So no patching of `img2table` is
       needed — just prepend the bundled binary dir to `PATH` and pass `tessdata_dir`. On the
@@ -81,15 +81,15 @@ After completing each phase:
               _ocr = TesseractOCR(lang="eng", tessdata_dir=_configure_tesseract())
           return _ocr
       ```
-- [ ] **1.3 Trim `requirements.txt`.** Remove `pdf2image`, `pypdf`, `pytesseract`,
+- [x] **1.3 Trim `requirements.txt`.** Remove `pdf2image`, `pypdf`, `pytesseract`,
       `python-decouple` (all confirmed unused after 1.1/1.2). Add `PyMuPDF>=1.24.0`. Keep the
       `streamlit>=1.32,<1.44` pin (required by `streamlit-drawable-canvas` 0.9.3).
 
 ### Verification (macOS)
-- [ ] Render `sample_document.pdf` p.1 with the new code; confirm dimensions ≈ old 200-DPI output.
-- [ ] Run a full `extract_table_from_region()` on a known table; DataFrame should match the
-      current pipeline (OCR path is unchanged).
-- [ ] `streamlit run app.py` → one end-to-end extract → CSV, confirm no regression.
+- [x] Render `sample_document.pdf` p.1 with the new code; 1700×2200 RGB — matches old 200-DPI output.
+- [x] Run a full `extract_table_from_region()` on a known bbox (p.12); 21×28 DataFrame with the
+      usual OCR artifacts — pipeline unchanged.
+- [x] App boots headless; `/_stcore/health` returns 200, no import regressions.
 
 ### Then
 - [ ] PR `phase-1-native-deps` → code-review → merge.
