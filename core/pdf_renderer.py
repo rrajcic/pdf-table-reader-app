@@ -1,24 +1,20 @@
 from pathlib import Path
 
-from pdf2image import convert_from_path
+import fitz  # PyMuPDF
 from PIL import Image
-from pypdf import PdfReader
 
 
 def get_page_count(pdf_path: str) -> int:
-    reader = PdfReader(pdf_path)
-    return len(reader.pages)
+    with fitz.open(pdf_path) as doc:
+        return doc.page_count
 
 
 def render_page(pdf_path: str, page_number: int, dpi: int = 200) -> Image.Image:
     """Render a single PDF page as a PIL Image. page_number is 1-indexed."""
-    pages = convert_from_path(
-        pdf_path,
-        dpi=dpi,
-        first_page=page_number,
-        last_page=page_number,
-    )
-    return pages[0]
+    with fitz.open(pdf_path) as doc:
+        page = doc.load_page(page_number - 1)  # fitz pages are 0-indexed
+        pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
+        return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
 def find_pdfs(root: str = ".") -> list[str]:
