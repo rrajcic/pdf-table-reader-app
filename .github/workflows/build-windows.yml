@@ -43,11 +43,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      - name: Sanity-check imports
+        shell: pwsh
+        # These are reached only through app.py/core, which the PyInstaller spec
+        # ships as data — so confirm they at least import in the build env before
+        # spending time on the build.
+        run: python -c "import fitz, img2table, cv2, polars, bs4, PIL, pandas, streamlit, st_aggrid, streamlit_drawable_canvas; import core.ocr_engine, core.pdf_renderer; print('imports OK')"
+
       - name: Build executable
         shell: pwsh
         run: pyinstaller packaging/pdf_table_reader.spec
 
-      - name: Smoke test (boots and serves)
+      - name: Smoke test — bundled modules present
+        shell: pwsh
+        # Proves the *packaged* exe contains the OCR/render modules that reach
+        # the bundle only via app.py/core (invisible to PyInstaller analysis).
+        env:
+          PDFTR_SELFTEST: "1"
+        run: |
+          $exe = "dist\PDFTableReader.exe"
+          if (-not (Test-Path $exe)) { throw "Build failed: $exe not found" }
+          $out = & $exe
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0 -or ($out -notmatch "selftest OK")) {
+            throw "Self-test failed: packaged exe is missing bundled modules"
+          }
+
+      - name: Smoke test — boots and serves
         shell: pwsh
         run: |
           $exe = "dist\PDFTableReader.exe"

@@ -10,20 +10,52 @@
 
 import os
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 datas = []
 binaries = []
 hiddenimports = []
 
-# --- Streamlit + custom components -----------------------------------------
-# These ship a compiled frontend (static/ and frontend/build) plus package
-# metadata that must travel with them, or the app 500s at runtime.
-for pkg in ("streamlit", "st_aggrid", "streamlit_drawable_canvas"):
-    pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
-    datas += pkg_datas
-    binaries += pkg_binaries
-    hiddenimports += pkg_hidden
+
+def _collect(pkg):
+    """collect_all a package, tolerating names that vary across versions."""
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+        datas.extend(pkg_datas)
+        binaries.extend(pkg_binaries)
+        hiddenimports.extend(pkg_hidden)
+        return True
+    except Exception:
+        return False
+
+
+# --- Packages reachable only through app.py / core/ ------------------------
+# CRITICAL: PyInstaller analyses run_app.py, which imports only Streamlit.
+# app.py and core/ are shipped as *data* (Streamlit runs app.py as a script),
+# so their imports are invisible to static analysis. Every dependency reached
+# only through them must be collected explicitly or it will be missing from the
+# bundle and the app will crash the first time a table is extracted:
+#   fitz (PyMuPDF)  -> core/pdf_renderer.py
+#   img2table       -> core/ocr_engine.py  (pulls cv2, polars, bs4)
+#   st_aggrid, streamlit_drawable_canvas -> app.py (also ship a JS frontend)
+# Streamlit's own deps (pandas, numpy, PIL, pyarrow) arrive via the run_app.py
+# import graph, but we collect a couple explicitly for safety.
+for pkg in (
+    "streamlit",
+    "st_aggrid",
+    "streamlit_drawable_canvas",
+    "img2table",
+    "cv2",
+    "polars",
+    "bs4",
+    "PIL",
+):
+    _collect(pkg)
+
+# PyMuPDF's importable name changed across versions ("fitz" and/or "pymupdf");
+# collect whichever exist so binaries travel with the build.
+if not any(_collect(name) for name in ("pymupdf", "fitz")):
+    raise SystemExit("packaging: PyMuPDF (fitz/pymupdf) could not be collected.")
 
 # --- Runtime version lookups (importlib.metadata) --------------------------
 # Several libraries read their own dist metadata at import/runtime.
@@ -32,9 +64,6 @@ for pkg in ("streamlit", "img2table", "pandas", "numpy", "pyarrow", "PyMuPDF"):
         datas += copy_metadata(pkg)
     except Exception:
         pass
-
-# --- img2table bundled resources -------------------------------------------
-datas += collect_data_files("img2table")
 
 # --- Application source -----------------------------------------------------
 # app.py is executed as a script by Streamlit (not imported), so it and the
