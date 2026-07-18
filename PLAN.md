@@ -153,12 +153,13 @@ After completing each phase:
 
 ## Phase 3 — Package + deliver
 
-**Status:** ☐ Not started
+**Status:** ◐ Code complete + locally validated (spec syntax, workflow YAML). Windows build /
+smoke test can only be confirmed by running the CI workflow — pending after merge.
 **Goal:** A single `.exe` on the Releases page. Fiddliest phase (Streamlit + PyInstaller) —
 budget for CI iteration.
 
 ### Tasks
-- [ ] **3.1 PyInstaller spec** — new `packaging/pdf_table_reader.spec`. Must explicitly include
+- [x] **3.1 PyInstaller spec** — new `packaging/pdf_table_reader.spec`. Must explicitly include
       what PyInstaller can't auto-discover:
       - `collect_all("streamlit")`, `collect_all("st_aggrid")`,
         `collect_all("streamlit_drawable_canvas")` — these ship frontend build assets + metadata.
@@ -171,7 +172,7 @@ budget for CI iteration.
         flip back.)
       - Expected size ~300–500 MB (opencv + pyarrow are the weight; **no** PyTorch, since we kept
         tesseract rather than swapping to a neural OCR).
-- [ ] **3.2 GitHub Actions workflow** — new `.github/workflows/build-windows.yml`.
+- [x] **3.2 GitHub Actions workflow** — new `.github/workflows/build-windows.yml`.
       - Triggers: `workflow_dispatch` (manual test) + push of tag `v*` (real release).
       - `runs-on: windows-latest`. Steps:
         1. Checkout + `setup-python@v5` (3.12).
@@ -183,21 +184,23 @@ budget for CI iteration.
            200 (or timeout), then kill — proves it boots as a packaged app.
         6. `upload-artifact` on manual runs; on a tag, `softprops/action-gh-release` attaches the
            `.exe` to a GitHub Release.
-- [ ] **3.3 README for the end user** — add a "**Download & Run (Windows)**" section at the very
+- [x] **3.3 README for the end user** — add a "**Download & Run (Windows)**" section at the very
       top: Releases → download `PDFTableReader.exe` → double-click; screenshot of the SmartScreen
       "More info → Run anyway" step; "app opens in your browser; close the browser tab and the
       black window to quit." Move the existing dev instructions down under "Build from source."
-- [ ] **3.4 Document the release process** — `git tag v1.0.0 && git push origin v1.0.0` → CI
+- [x] **3.4 Document the release process** — `git tag v1.0.0 && git push origin v1.0.0` → CI
       builds + publishes. Test with a manual `workflow_dispatch` run first (downloadable artifact)
       before cutting a real tag.
 
 ### Verification
-- [ ] CI smoke test passes (exe boots, health endpoint responds).
+- [x] Spec parses (`py_compile`); workflow is valid YAML.
+- [ ] CI smoke test passes (exe boots, health endpoint responds). — **run after merge**
 - [ ] Manual `workflow_dispatch` artifact runs end-to-end on a real Windows machine.
 - [ ] Tagged release produces a downloadable `.exe` on the Releases page.
 
 ### Then
-- [ ] PR `phase-3-packaging` → code-review → merge, then cut the first tagged release.
+- [ ] PR `phase-3-packaging` → code-review → merge, then run the workflow (Actions →
+      Run workflow) to shake out any PyInstaller issues before cutting the first tagged release.
 
 **Risks & mitigations:**
 - *Streamlit + PyInstaller quirks* (highest risk): iterate in CI; onedir-debug fallback.

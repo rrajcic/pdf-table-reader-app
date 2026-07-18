@@ -55,7 +55,28 @@ def _open_when_ready() -> None:
     webbrowser.open(URL)
 
 
+def _selftest() -> int:
+    """
+    Import the modules that are reachable only through app.py/core so a packaged
+    build can prove it actually bundled them (PyInstaller can't see these via
+    static analysis — see packaging/pdf_table_reader.spec). Used by CI:
+    running the built exe with PDFTR_SELFTEST=1 must print "selftest OK".
+    """
+    import bs4  # noqa: F401
+    import cv2  # noqa: F401
+    import img2table  # noqa: F401
+    import polars  # noqa: F401
+
+    import core.ocr_engine  # noqa: F401
+    import core.pdf_renderer  # noqa: F401
+
+    print("selftest OK")
+    return 0
+
+
 def main() -> int:
+    if os.environ.get("PDFTR_SELFTEST") == "1":
+        return _selftest()
     _ensure_credentials()
     threading.Thread(target=_open_when_ready, daemon=True).start()
 

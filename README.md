@@ -16,6 +16,34 @@ Note: The intention of this project was to build something helpful for my dad wh
 
 ---
 
+## Download & Run (Windows) — the easy way
+
+If someone has already built the app for you, you do **not** need to install Python,
+poppler, Tesseract, or anything else. Download one file and double-click it.
+
+1. Go to the **[Releases page](https://github.com/rrajcic/pdf-table-reader-app/releases)**.
+2. Under the latest release, download **`PDFTableReader.exe`**.
+3. Double-click the downloaded file.
+4. **The first time only**, Windows may show a blue *"Windows protected your PC"* box —
+   this appears for any app that isn't from the Microsoft Store. Click **More info**, then
+   **Run anyway**. You won't be asked again.
+5. A small black window opens (that's the app's engine — leave it open). After a few
+   seconds the app appears in your web browser.
+
+To **quit**: close the browser tab, then close the black window.
+
+> Everything runs on your own computer — no internet connection, no accounts, no uploads.
+
+<!-- Optional: add a screenshot of the SmartScreen "More info → Run anyway" step here,
+     e.g. ![SmartScreen](docs/smartscreen.png), to make step 4 clearer. -->
+
+---
+
+# Build from source (for developers)
+
+Everything below is only needed if you want to run the app from source, or build the
+`.exe` yourself. A non-technical user following the section above does **not** need any of it.
+
 ## Before you begin
 
 You will need a few free tools installed on your computer. Don't worry — this guide walks through each one.
@@ -268,6 +296,31 @@ The app will open automatically in your web browser at `http://localhost:8501`. 
 To stop the app, go back to your terminal and press `Control + C`.
 
 To start it again later, just repeat Step 8.
+
+---
+
+## Building the Windows `.exe`
+
+The Windows executable is built automatically by GitHub Actions on a Windows runner —
+you do **not** need a Windows machine. The workflow bundles Python, all dependencies,
+the Streamlit frontend, and a full Tesseract install into one file
+(`packaging/pdf_table_reader.spec` defines the bundle; `.github/workflows/build-windows.yml`
+runs the build).
+
+**To publish a release:**
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The workflow builds `PDFTableReader.exe`, smoke-tests that it boots, and attaches it to a
+new GitHub Release. Your users then download it from the Releases page (see
+"Download & Run" above).
+
+**To test a build without publishing:** open the repo's **Actions** tab → **Build Windows
+app** → **Run workflow**. It produces a downloadable artifact you can try on a Windows
+machine before cutting a real tagged release.
 
 ---
 
