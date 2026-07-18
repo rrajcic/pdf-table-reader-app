@@ -153,8 +153,11 @@ After completing each phase:
 
 ## Phase 3 — Package + deliver
 
-**Status:** ◐ Code complete + locally validated (spec syntax, workflow YAML). Windows build /
-smoke test can only be confirmed by running the CI workflow — pending after merge.
+**Status:** ☑ Green Windows build. Run 29648590033 succeeded (4m8s): exe builds, both smoke
+tests pass (bundled-modules self-test + boots/serves), artifact `PDFTableReader-windows`
+(~237 MB) uploaded. Took 3 CI rounds — see notes below. **Still to do:** end-to-end OCR test on
+a real Windows machine (CI's health check doesn't exercise tesseract.exe), then cut a tagged
+release to publish the exe.
 **Goal:** A single `.exe` on the Releases page. Fiddliest phase (Streamlit + PyInstaller) —
 budget for CI iteration.
 
@@ -194,8 +197,10 @@ budget for CI iteration.
 
 ### Verification
 - [x] Spec parses (`py_compile`); workflow is valid YAML.
-- [ ] CI smoke test passes (exe boots, health endpoint responds). — **run after merge**
+- [x] CI smoke test passes (run 29648590033: exe boots, `/_stcore/health` 200, self-test OK).
 - [ ] Manual `workflow_dispatch` artifact runs end-to-end on a real Windows machine.
+      **← the one thing CI can't prove: drawing a box and extracting a table actually runs the
+      bundled tesseract.exe. Download the artifact and try it on Windows before releasing.**
 - [ ] Tagged release produces a downloadable `.exe` on the Releases page.
 
 ### Then
@@ -209,7 +214,12 @@ budget for CI iteration.
         `polars`/`numba` for a lighter `pypdfium2`+opencv stack, so the `polars` import failed.
         Fixed by pinning `img2table>=2.0.0,<3.0.0` and swapping `polars`→`pypdfium2` in the spec
         collect list, the CI sanity check, and the `_selftest` hook. Verified 2.0.0 extracts
-        correctly in a clean venv mirroring CI. (branch `phase-3-fix-img2table-pin`)
+        correctly in a clean venv mirroring CI. (PR #4)
+      - Run 29648355825: **failed** at `Build executable` — `ERROR: script ...\packaging\
+        run_app.py not found`. PyInstaller resolves relative paths against the spec's own dir,
+        not the cwd. Fixed by anchoring all paths to `ROOT = dirname(SPECPATH)`. Verified with a
+        real PyInstaller build on macOS (packaged exe self-test passed). (PR #5)
+      - Run 29648590033: **success.** (build + both smoke tests green, artifact uploaded)
 
 **Risks & mitigations:**
 - *Streamlit + PyInstaller quirks* (highest risk): iterate in CI; onedir-debug fallback.
