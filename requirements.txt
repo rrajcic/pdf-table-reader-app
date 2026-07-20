@@ -1,5 +1,9 @@
-# streamlit-drawable-canvas 0.9.3 uses image_to_url, removed in Streamlit 1.44+
-streamlit>=1.32.0,<1.44.0
+# streamlit-drawable-canvas 0.9.3 imports streamlit.elements.image.image_to_url,
+# which Streamlit removed in 1.41.0 (present in 1.40.0, gone in 1.41.0). Pinned
+# EXACTLY so dev and the Windows CI build resolve to the identical version — a
+# range let CI grab a newer, broken release (1.42/1.43) while older dev envs kept
+# working, so the shipped exe crashed on the first canvas render.
+streamlit==1.40.0
 streamlit-drawable-canvas>=0.9.3
 streamlit-aggrid>=1.0.5,<2.0.0
 PyMuPDF>=1.24.0
